@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { dbSet, dbGet, dbListen, dbRemove } from "./firebase";
+import PLAN_IMAGE from "./planImage";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const ADMIN_PASSWORD = "jardin2024";   // ← modifiez ce mot de passe
@@ -369,7 +370,7 @@ function ResultsOverlay({ pins, stories, isAdmin, onClose, onDeletePin }) {
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [imageSrc,    setImageSrc]    = useState(null);
+  const [imageSrc,    setImageSrc]    = useState(PLAN_IMAGE);
   const [pins,        setPins]        = useState([]);
   const [stories,     setStories]     = useState([]);
   const [pendingPos,  setPendingPos]  = useState(null);
@@ -396,8 +397,7 @@ export default function App() {
     const unsub2 = dbListen("stories", (val) => {
       setStories(val ? Object.values(val) : []);
     });
-    // Load persisted image URL
-    dbGet("imageUrl").then((url) => { if (url) setImageSrc(url); });
+    // Image intégrée directement dans le code — pas besoin de la charger depuis Firebase
     return () => { unsub1(); unsub2(); };
   }, []);
 
@@ -405,24 +405,17 @@ export default function App() {
   const handleImageUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const dataUrl = ev.target.result;
-      setImageSrc(dataUrl);
-      notify("Enregistrement du plan…");
-      const ok = await dbSet("imageUrl", dataUrl);
-      if (ok) notify("Plan enregistré pour tous les participants !");
-      else notify("⚠️ Erreur Firebase — vérifiez les règles.");
-    };
-    reader.readAsDataURL(file);
+    const localUrl = URL.createObjectURL(file);
+    setImageSrc(localUrl);
+    notify("Plan remplacé pour cette session.");
     e.target.value = "";
   };
 
-  // ── Admin: delete plan ──
-  const handleDeleteImage = async () => {
-    if (!window.confirm("Supprimer le plan pour tous les participants ?")) return;
-    await dbRemove("imageUrl");
-    setImageSrc(null);
+  // ── Admin: reset plan to default ──
+  const handleDeleteImage = () => {
+    if (!window.confirm("Remettre le plan par défaut ?")) return;
+    setImageSrc(PLAN_IMAGE);
+    notify("Plan réinitialisé.");
   };
 
   // ── Participant: place pin ──
