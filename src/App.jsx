@@ -124,6 +124,11 @@ function PinCallout({ pin, index, isAdmin, onClose, onDelete }) {
   );
 }
 
+// ─── Row helper (must be outside PinForm to avoid re-render on every keystroke) ─
+function Row({ children, style }) {
+  return <div style={{ marginBottom: 16, ...style }}>{children}</div>;
+}
+
 // ─── PinForm ──────────────────────────────────────────────────────────────────
 function PinForm({ position, onSave, onCancel }) {
   const [panelType, setPanelType]   = useState("");
@@ -138,8 +143,6 @@ function PinForm({ position, onSave, onCancel }) {
     if (!indication.trim()) { setError(true); inputRef.current?.focus(); return; }
     onSave({ id: Date.now(), x: position.x, y: position.y, panelType, indication: indication.trim(), comment: comment.trim(), name: name.trim(), createdAt: new Date().toISOString() });
   };
-
-  const Row = ({ children, style }) => <div style={{ marginBottom: 16, ...style }}>{children}</div>;
 
   return (
     <div style={S.overlay} onClick={onCancel}>
@@ -278,11 +281,13 @@ function ClosingPage({ participantName, allPins, onDone }) {
 }
 
 // ─── ResultsOverlay (visible after quiz) ─────────────────────────────────────
-function ResultsOverlay({ pins, stories, isAdmin, onClose, onDeletePin }) {
-  const [tab, setTab] = useState("pins");
+function ResultsOverlay({ pins, stories, isAdmin, imageSrc, onClose, onDeletePin }) {
+  const [tab,       setTab]       = useState("map");
+  const [activePin, setActivePin] = useState(null);
+  const imgRef = useRef(null);
 
-  const exportCSV = () => {
-    if (tab === "pins") {
+  const exportCSV = (type) => {
+    if (type === "pins") {
       const rows = [
         ["#", "Type", "Indication", "Commentaire", "Prénom", "X (%)", "Y (%)", "Date"],
         ...pins.map((p, i) => [i + 1, p.panelType, p.indication, p.comment, p.name, p.x.toFixed(2), p.y.toFixed(2), p.createdAt]),
@@ -296,77 +301,132 @@ function ResultsOverlay({ pins, stories, isAdmin, onClose, onDeletePin }) {
     }
   };
 
-  const tabBtn = (id, label, count) => (
-    <button onClick={() => setTab(id)} style={{
-      padding: "8px 18px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600,
-      background: tab === id ? "linear-gradient(135deg,#2563EB,#7C3AED)" : "transparent",
-      color: tab === id ? "#fff" : "#6B7280",
-    }}>
-      {label} <span style={{ fontSize: 11, opacity: .7 }}>({count})</span>
-    </button>
-  );
+  const tabs = isAdmin
+    ? [{ id: "map", label: "Plan" }, { id: "pins", label: "Emplacements", count: pins.length }, { id: "stories", label: "Témoignages", count: stories.length }]
+    : [{ id: "map", label: "Plan" }, { id: "pins", label: "Emplacements", count: pins.length }];
 
   return (
-    <div style={{ ...S.overlay, alignItems: "flex-start", paddingTop: 0 }}>
-      <div style={{ width: "100%", maxWidth: 680, height: "100vh", background: "#0D1117", borderLeft: "1px solid #1F2937", marginLeft: "auto", display: "flex", flexDirection: "column", animation: "slideRight .25s ease" }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "#030712", display: "flex", flexDirection: "column" }}>
 
-        {/* Header */}
-        <div style={{ padding: "20px 24px 0", borderBottom: "1px solid #1F2937", flexShrink: 0 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
-            <div>
-              <h2 style={{ color: "#F9FAFB", fontSize: 18, fontWeight: 800, margin: "0 0 4px" }}>Résultats de la consultation</h2>
-              <p style={{ color: "#4B5563", fontSize: 13, margin: 0 }}>{pins.length} emplacement{pins.length !== 1 ? "s" : ""} · {stories.length} témoignage{stories.length !== 1 ? "s" : ""}</p>
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <button onClick={exportCSV} style={{ background: "#111827", border: "1px solid #1F2937", color: "#9CA3AF", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>↓ CSV</button>
-              {onClose && <button onClick={onClose} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 22, cursor: "pointer", padding: 0, lineHeight: 1 }}>×</button>}
-            </div>
+      {/* Header */}
+      <div style={{ padding: "0 24px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between", background: "#0D1117", borderBottom: "1px solid #1F2937", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 7, background: "linear-gradient(135deg,#2563EB,#7C3AED)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, color: "#fff", fontSize: 13 }}>◈</div>
+            <span style={{ color: "#F9FAFB", fontWeight: 700, fontSize: 15 }}>Résultats</span>
           </div>
-          <div style={{ display: "flex", gap: 4, paddingBottom: 1 }}>
-            {tabBtn("pins", "Emplacements", pins.length)}
-            {tabBtn("stories", "Témoignages", stories.length)}
+          {/* Tabs */}
+          <div style={{ display: "flex", gap: 4 }}>
+            {tabs.map((t) => (
+              <button key={t.id} onClick={() => setTab(t.id)} style={{
+                padding: "6px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600,
+                background: tab === t.id ? "linear-gradient(135deg,#2563EB,#7C3AED)" : "transparent",
+                color: tab === t.id ? "#fff" : "#6B7280",
+              }}>
+                {t.label}{t.count !== undefined ? <span style={{ opacity: .7, fontSize: 11 }}> ({t.count})</span> : ""}
+              </button>
+            ))}
           </div>
         </div>
-
-        {/* Content */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
-          {tab === "pins" && (
-            pins.length === 0
-              ? <p style={{ color: "#4B5563", textAlign: "center", marginTop: 40 }}>Aucun emplacement enregistré.</p>
-              : pins.map((pin, i) => (
-                <div key={pin.id} style={{ ...S.card, padding: "14px 16px", marginBottom: 10, borderColor: "#1F2937" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                    <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                      <span style={{ background: "#2563EB22", color: "#60A5FA", fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 999, flexShrink: 0, marginTop: 1 }}>#{i + 1}</span>
-                      <div>
-                        <p style={{ color: "#F9FAFB", fontSize: 14, fontWeight: 600, margin: "0 0 3px" }}>{pin.indication}</p>
-                        {pin.panelType && <p style={{ color: "#4B5563", fontSize: 11, margin: "0 0 3px" }}>{PANEL_TYPES.find((t) => t.id === pin.panelType)?.label}</p>}
-                        {pin.comment   && <p style={{ color: "#9CA3AF", fontSize: 12, margin: "0 0 3px", lineHeight: 1.5 }}>{pin.comment}</p>}
-                        {pin.name      && <p style={{ color: "#374151", fontSize: 11, margin: 0 }}>— {pin.name}</p>}
-                      </div>
-                    </div>
-                    {isAdmin && (
-                      <button onClick={() => onDeletePin(pin.id)} style={{ background: "#1F1215", border: "1px solid #3F1F2A", color: "#EF4444", borderRadius: 6, fontSize: 10, padding: "3px 8px", cursor: "pointer", fontWeight: 600, flexShrink: 0, marginLeft: 8 }}>Supprimer</button>
-                    )}
-                  </div>
-                </div>
-              ))
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {(tab === "pins" || tab === "stories") && isAdmin && (
+            <button onClick={() => exportCSV(tab)} style={{ background: "#111827", border: "1px solid #1F2937", color: "#9CA3AF", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>↓ CSV</button>
           )}
-          {tab === "stories" && (
-            stories.length === 0
-              ? <p style={{ color: "#4B5563", textAlign: "center", marginTop: 40 }}>Aucun témoignage enregistré.</p>
-              : stories.map((s, i) => (
-                <div key={i} style={{ ...S.card, padding: "14px 16px", marginBottom: 10, borderColor: "#1F2937" }}>
-                  <p style={{ color: "#E2E8F0", fontSize: 14, lineHeight: 1.6, margin: "0 0 6px" }}>{s.text}</p>
-                  {s.name && <p style={{ color: "#374151", fontSize: 11, margin: 0 }}>— {s.name}</p>}
-                </div>
-              ))
+          {onClose && (
+            <button onClick={onClose} style={{ background: "none", border: "1px solid #1F2937", color: "#6B7280", borderRadius: 8, padding: "6px 12px", fontSize: 13, cursor: "pointer" }}>← Retour</button>
           )}
         </div>
       </div>
+
+      {/* Map tab */}
+      {tab === "map" && (
+        <div style={{ flex: 1, overflow: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ position: "relative", display: "inline-block", borderRadius: 12, boxShadow: "0 0 0 1px #1F2937, 0 24px 80px rgba(0,0,0,.6)" }}>
+            <img ref={imgRef} src={imageSrc} alt="Plan" draggable={false}
+              style={{ display: "block", maxWidth: "100%", maxHeight: "calc(100vh - 120px)", userSelect: "none", borderRadius: 12 }}
+            />
+            {pins.map((pin, i) => (
+              <div key={pin.id} onClick={(e) => { e.stopPropagation(); setActivePin(activePin?.id === pin.id ? null : pin); }}
+                style={{ position: "absolute", left: `${pin.x}%`, top: `${pin.y}%`, transform: "translate(-50%,-100%)", zIndex: activePin?.id === pin.id ? 30 : 10, cursor: "pointer", filter: activePin?.id === pin.id ? "drop-shadow(0 0 8px #60A5FA)" : "none" }}
+              >
+                <div style={{ width: 30, height: 30, background: activePin?.id === pin.id ? "linear-gradient(145deg,#60A5FA,#2563EB)" : "linear-gradient(145deg,#3B82F6,#1D4ED8)", borderRadius: "50% 50% 50% 0", transform: "rotate(-45deg)", border: "2.5px solid rgba(255,255,255,.3)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 14px rgba(59,130,246,.5)" }}>
+                  <span style={{ transform: "rotate(45deg)", fontSize: 11, fontWeight: 800, color: "#fff" }}>{i + 1}</span>
+                </div>
+              </div>
+            ))}
+            {activePin && (() => {
+              const i = pins.findIndex((p) => p.id === activePin.id);
+              const typeLabel = PANEL_TYPES.find((t) => t.id === activePin.panelType)?.label || "";
+              return (
+                <div onClick={(e) => e.stopPropagation()} style={{ position: "absolute", left: `${activePin.x}%`, top: `${activePin.y}%`, transform: "translate(-50%, calc(-100% - 42px))", zIndex: 40, width: 240, background: "#0D1117", border: "1.5px solid #2563EB55", borderRadius: 10, padding: "12px 14px", boxShadow: "0 8px 30px rgba(0,0,0,.7)", animation: "popIn .18s cubic-bezier(.34,1.56,.64,1)" }}>
+                  <div style={{ position: "absolute", bottom: -7, left: "50%", transform: "translateX(-50%) rotate(45deg)", width: 12, height: 12, background: "#0D1117", borderRight: "1.5px solid #2563EB55", borderBottom: "1.5px solid #2563EB55" }} />
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <span style={{ background: "#2563EB22", color: "#60A5FA", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999 }}>#{i + 1}</span>
+                      {typeLabel && <span style={{ color: "#6B7280", fontSize: 10 }}>{typeLabel}</span>}
+                    </div>
+                    <button onClick={() => setActivePin(null)} style={{ background: "none", border: "none", color: "#6B7280", cursor: "pointer", fontSize: 18, padding: 0 }}>×</button>
+                  </div>
+                  <p style={{ color: "#F9FAFB", fontSize: 13, fontWeight: 600, margin: "0 0 4px", lineHeight: 1.4 }}>{activePin.indication}</p>
+                  {activePin.comment && <p style={{ color: "#9CA3AF", fontSize: 12, margin: "0 0 6px", lineHeight: 1.5 }}>{activePin.comment}</p>}
+                  {activePin.name    && <p style={{ color: "#4B5563", fontSize: 11, margin: 0 }}>— {activePin.name}</p>}
+                  {isAdmin && (
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+                      <button onClick={() => { onDeletePin(activePin.id); setActivePin(null); }} style={{ background: "#1F1215", border: "1px solid #3F1F2A", color: "#EF4444", borderRadius: 6, fontSize: 10, padding: "3px 8px", cursor: "pointer", fontWeight: 600 }}>Supprimer</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* Pins list tab */}
+      {tab === "pins" && (
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px", maxWidth: 700, margin: "0 auto", width: "100%" }}>
+          {pins.length === 0
+            ? <p style={{ color: "#4B5563", textAlign: "center", marginTop: 40 }}>Aucun emplacement enregistré.</p>
+            : pins.map((pin, i) => (
+              <div key={pin.id} style={{ background: "#111827", border: "1px solid #1F2937", borderRadius: 14, padding: "14px 16px", marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                    <span style={{ background: "#2563EB22", color: "#60A5FA", fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 999, flexShrink: 0, marginTop: 1 }}>#{i + 1}</span>
+                    <div>
+                      <p style={{ color: "#F9FAFB", fontSize: 14, fontWeight: 600, margin: "0 0 3px" }}>{pin.indication}</p>
+                      {pin.panelType && <p style={{ color: "#4B5563", fontSize: 11, margin: "0 0 3px" }}>{PANEL_TYPES.find((t) => t.id === pin.panelType)?.label}</p>}
+                      {pin.comment   && <p style={{ color: "#9CA3AF", fontSize: 12, margin: "0 0 3px", lineHeight: 1.5 }}>{pin.comment}</p>}
+                      {pin.name      && <p style={{ color: "#374151", fontSize: 11, margin: 0 }}>— {pin.name}</p>}
+                    </div>
+                  </div>
+                  {isAdmin && (
+                    <button onClick={() => onDeletePin(pin.id)} style={{ background: "#1F1215", border: "1px solid #3F1F2A", color: "#EF4444", borderRadius: 6, fontSize: 10, padding: "3px 8px", cursor: "pointer", fontWeight: 600, flexShrink: 0, marginLeft: 8 }}>Supprimer</button>
+                  )}
+                </div>
+              </div>
+            ))
+          }
+        </div>
+      )}
+
+      {/* Stories tab — admin only */}
+      {tab === "stories" && isAdmin && (
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px", maxWidth: 700, margin: "0 auto", width: "100%" }}>
+          {stories.length === 0
+            ? <p style={{ color: "#4B5563", textAlign: "center", marginTop: 40 }}>Aucun témoignage enregistré.</p>
+            : stories.map((s, i) => (
+              <div key={i} style={{ background: "#111827", border: "1px solid #1F2937", borderRadius: 14, padding: "14px 16px", marginBottom: 10 }}>
+                <p style={{ color: "#E2E8F0", fontSize: 14, lineHeight: 1.6, margin: "0 0 6px" }}>{s.text}</p>
+                {s.name && <p style={{ color: "#374151", fontSize: 11, margin: 0 }}>— {s.name}</p>}
+              </div>
+            ))
+          }
+        </div>
+      )}
     </div>
   );
 }
+
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
@@ -465,6 +525,7 @@ export default function App() {
           pins={pins}
           stories={stories}
           isAdmin={isAdmin}
+          imageSrc={imageSrc}
           onClose={isAdmin ? () => setPhase("survey") : null}
           onDeletePin={isAdmin ? handleDeletePin : undefined}
         />
